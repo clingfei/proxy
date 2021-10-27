@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <pthread.h>
+#include <arpa/inet.h>
 
 #define REMOTE_SERVER_PORT 80			
 #define BUF_SIZE 4096*4 				
@@ -75,9 +76,23 @@ void print_clientinfo(struct sockaddr_in cli_addr)
 	/*please add some statments here to accomplish the Experiemnt 2! 
 	The experiment's mission is to print the ip addr and port of client making proxy request.*/
 
-
-	printf("Received a new request!\n");   //if the output statement disturbs the experiments, please delete it.  
- 
+	/*
+	 * struct sockaddr_in {
+	 *      short      sin_family;    // 2 bytes e.g. AF_INET, AF_INET6
+     *      unsigned short  sin_port;  // 2 bytes e.g. htons(3490)
+     *      struct in_addr  sin_addr;   // 4 bytes see struct in_addr, below
+     *      char       sin_zero[8];   // 8 bytes zero this if you want to
+     *  };
+	 */
+	char ip_addr[20];
+	printf("Received a new request!\n");   //if the output statement disturbs the experiments, please delete it.
+    printf("sin_port: %d\n", ntohs(cli_addr.sin_port));
+    char * ptr = inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr, ip_addr, sizeof(ip_addr));
+    if (ptr == NULL) {
+        printf("failed to convert\n");
+        exit(-1);
+    }
+    printf("sin_addr: %s\n", ip_addr);
 	return;
 }
 
@@ -186,7 +201,7 @@ int main(int argc, char **argv)
 	if (listen(sockfd, QUEUE_SIZE) < 0) {
 		printf("Listen failed...Abort...\n");
 		return;
-	} 
+	}
 	while (1) {
 		accept_sockfd = accept(sockfd, (struct sockaddr *)&cl_addr, &sin_size); 	// block for connection request
 		if (accept_sockfd < 0) {
