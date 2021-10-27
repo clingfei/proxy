@@ -33,7 +33,11 @@ int checkserver(char *hostname){
 	/*A simple example is shown here, you can follow it to accomplish Experiment 4. 
 	If you let the client access the server , please return 1, otherwise return -1 */
 	
-
+    char *blocked_server = "127.0.0.1:8888";
+    if (strstr(hostname, blocked_server) != NULL) {
+        printf("the server has been blocked.\n");
+        return -1;
+    }
 	/*
 		#define BLOCKED_SERVER "bbs.sjtu.edu.cn"
 
@@ -47,7 +51,7 @@ int checkserver(char *hostname){
 }
 
 int checkclient(in_addr_t cli_ipaddr) {
-	printf("Received a new request!\n");   //if the output statement disturbs the experiments, please delete it.  
+	printf("enter checkclient\n");   //if the output statement disturbs the experiments, please delete it.
 
 	/*please add some statments here to accomplish Experiemnt 3! 
 	The experiment's mission is to check the ip addr of the cliens, 
@@ -56,17 +60,14 @@ int checkclient(in_addr_t cli_ipaddr) {
 	/*A simple example is shown here, you can follow it to accomplish Experiment 3. 
 	If you want to provide the proxy server to the clients, please return 1, otherwise return -1 */
 
-
-	/*
-		char ALLOWED_CLIENTIP[20] =  "192.168.245.1";
-		int allowedip;
-		inet_aton(ALLOWED_CLIENTIP,&allowedip);
-		if (allowedip != cli_ipaddr)	{
-			printf("Client IP authentication failed !\n ");
-			return -1;
-		}
-	
-	*/
+	//ALLOWED should be read from a text file, then use a loop to check whether the ip is allowed.
+    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
+    int allowedip;
+    inet_pton(AF_INET, ALLOWED_CLIENTIP, &allowedip);
+    if (allowedip != cli_ipaddr) {
+        printf("Client IP authentication failed !\n ");
+        return -1;
+    }
 	return 1;
 }
 
@@ -86,20 +87,28 @@ void print_clientinfo(struct sockaddr_in cli_addr)
 	 */
 	char ip_addr[20];
 	printf("Received a new request!\n");   //if the output statement disturbs the experiments, please delete it.
-    printf("sin_port: %d\n", ntohs(cli_addr.sin_port));
+
     char * ptr = inet_ntop(cli_addr.sin_family, &cli_addr.sin_addr, ip_addr, sizeof(ip_addr));
     if (ptr == NULL) {
         printf("failed to convert\n");
         exit(-1);
     }
-    printf("sin_addr: %s\n", ip_addr);
+    printf("client port: %d, client addr: %s\n", ntohs(cli_addr.sin_port), ip_addr);
 	return;
 }
 
 void print_severinfo(struct sockaddr_in server_addr)
 {
 	//please add some statments here to accomplish the Experiemnt 2! The mission is to print the ip addr and port of the remote web server.
- 
+    char ip_addr[20];
+
+    char * ptr = inet_ntop(server_addr.sin_family, &server_addr.sin_addr, ip_addr, sizeof(ip_addr));
+    if (ptr == NULL) {
+        printf("failed to convert\n");
+        exit(-1);
+    }
+    printf("server port: %d, server addr: %s\n", ntohs(server_addr.sin_port), ip_addr);
+
 	return;
 }
 
@@ -110,14 +119,14 @@ void dealonereq(void *arg)
 	char buf[BUF_SIZE]; 											// buffer for incoming file
 	char recvbuf[BUF_SIZE],hostname[256];
 	int remotesocket;
-	int accept_sockfd = (int)arg;
+	int accept_sockfd = (int)arg;               //accept_sockfd is the socket of client
 	pthread_detach(pthread_self());
 	//
 	bzero(buf,BUF_SIZE);
 	bzero(recvbuf,BUF_SIZE);
 
 	bytes = read(accept_sockfd, buf, BUF_SIZE); 							// read a buffer from socket
-	if (bytes <= 0) {	
+	if (bytes <= 0) {	        //bytes <= 0, client send finished, close socket
 		close(accept_sockfd);
 		return; 
 	}
@@ -276,6 +285,7 @@ int connectserver(char* hostname)
 //	server_addr.sin_port= htons(REMOTE_SERVER_PORT);
 	server_addr.sin_port= htons(remoteport);
 	pthread_mutex_lock(&conp_mutex);
+	// lastservername被各线程共享，属于临界资源，故加锁
 	if (strcmp(lastservername, newhostname) != 0)
 	{ 	
 		hostinfo = gethostbyname(newhostname);						
