@@ -20,6 +20,10 @@
 #define BUF_SIZE 4096*4 				
 #define QUEUE_SIZE 100
 
+struct parameter {
+    int accept_sockfd;
+    struct sockaddr_in cl_addr;
+};
 
 pthread_mutex_t conp_mutex;
 char lastservername[256] = "";
@@ -118,14 +122,17 @@ void dealonereq(void *arg)
 	int bytes;
 	char buf[BUF_SIZE]; 											// buffer for incoming file
 	char recvbuf[BUF_SIZE],hostname[256];
+	char authorization[8192];
 	int remotesocket;
-	int accept_sockfd = (int)arg;               //accept_sockfd is the socket of client
+	struct parameter *para;
+	para = (struct parameter *)arg;
+	int accept_sockfd = (int)para->accept_sockfd;               //accept_sockfd is the socket of client
 	pthread_detach(pthread_self());
 	//
 	bzero(buf,BUF_SIZE);
 	bzero(recvbuf,BUF_SIZE);
 
-	bytes = read(accept_sockfd, buf, BUF_SIZE); 							// read a buffer from socket
+	bytes = read(accept_sockfd, buf, BUF_SIZE); 	// read a buffer from socket
 	if (bytes <= 0) {	        //bytes <= 0, client send finished, close socket
 		close(accept_sockfd);
 		return; 
@@ -148,10 +155,13 @@ void dealonereq(void *arg)
 		return; 
 	}
 
+	int flag = getUserInfo(buf, authorization, bytes);
+	printf("%s\n", authorization);
+    printf("buffer from client: %s\n", buf);
 	send(remotesocket, buf, bytes,MSG_NOSIGNAL);
 	while(1) {
 		int readSizeOnce = 0;
-		readSizeOnce = read(remotesocket, recvbuf, BUF_SIZE);				
+		readSizeOnce = read(remotesocket, recvbuf, BUF_SIZE);				//get response from server.
 		if (readSizeOnce <= 0) {
 			break;
 		}
@@ -222,9 +232,13 @@ int main(int argc, char **argv)
 		
 		//printf("Received a request from %s:%u \n",(char*)inet_ntoa(cl_addr.sin_addr.s_addr),ntohs(cl_addr.sin_port));
 
+
 		if (checkclient(cl_addr.sin_addr.s_addr) == 1)
 		{
-					pthread_create(&Clitid,NULL,(void*)dealonereq,(void*)accept_sockfd);
+		    struct parameter para;
+		    para.accept_sockfd = accept_sockfd;
+		    para.cl_addr = cl_addr;
+		    pthread_create(&Clitid,NULL,(void*)dealonereq,&para);
 		}
 		else
 			close(accept_sockfd);
@@ -232,6 +246,21 @@ int main(int argc, char **argv)
 	return 0;
 }
 
+int getUserInfo(char* buf,char *passwd,  int length)			//tested, must set this pointer[-6] to be '\n' again.
+{
+
+    char *p=strstr(buf,"Authorization:");
+    int i,j = 0;
+    if(!p) {
+        return -1;
+    }
+    bzero(passwd, sizeof(passwd));
+    for (i = (p-buf) + 21, j = 0; buf[i] != '\n'; ++i, ++j ) {
+        passwd[j] = buf[i];
+    }
+    passwd[j] = '\0';
+    return 1;
+}
 
 int getHostName(char* buf,char *hostname, int length)			//tested, must set this pointer[-6] to be '\n' again.
 {
@@ -310,7 +339,7 @@ int connectserver(char* hostname)
 	}
 
 	//You can delete the statement in case of voiding too much output.
-	printf("A proxy connection is established properly, the experiment 1 is done! Congratulation! \n");  
+	printf("A proxy connection is established properly! Congratulation! \n");
 
  	return remotesocket;
 }
