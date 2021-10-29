@@ -116,40 +116,49 @@ void print_severinfo(struct sockaddr_in server_addr)
 	return;
 }
 
-int checkuser(struct sockaddr_in cl_addr, char * authorization) {
-
-    char* const end = b64decode( authorization );
-    printf("authotization: %s\n", authorization);
-    int outputlen = end - authorization;
-    char res[outputlen + 1];
-    strncpy(res, authorization, outputlen);
-    printf("%s\n", res);
-
-
-    char username[outputlen];
-    char passwd[outputlen];
-    int i = 0, j = 0;
-    for (i = 0, j = 0; i < outputlen && res[i] != ':'; ++i, ++j) {
-        username[j] = res[i];
-    }
-    username[j] = '\0';
-    for (j = 0, i = i + 1; i < outputlen && res[i] != '\0'; ++i, ++j) {
-        passwd[j] = res[i];
-    }
-    passwd[j] = '\0';
-    printf("username: %s, \t passwd: %s\n", username, passwd);
-
-
+int checkuser(struct sockaddr_in cl_addr, char * authorization, int flag) {
     //check whether the user and passwd is suit for ip
     char ALLOWED_CLIENTIP[20] = "127.0.0.1";
     char *allowed_user = "bo", *allowed_passwd = "1234";
     int allowedip;
     inet_pton(AF_INET, ALLOWED_CLIENTIP, &allowedip);
-    if (cl_addr.sin_addr.s_addr == allowedip && !strcmp(username, allowed_user) && !strcmp(passwd, allowed_passwd))
-        return 0;
-    else return -1;
+
+    if (cl_addr.sin_addr.s_addr == allowedip) {
+        if (flag == -1) return -1;
+
+        char *const end = b64decode(authorization);
+        printf("authotization: %s\n", authorization);
+        int outputlen = end - authorization;
+        char res[outputlen + 1];
+        strncpy(res, authorization, outputlen);
+        printf("%s\n", res);
+
+        char username[outputlen];
+        char passwd[outputlen];
+        int i = 0, j = 0;
+        for (i = 0, j = 0; i < outputlen && res[i] != ':'; ++i, ++j) {
+            username[j] = res[i];
+        }
+        username[j] = '\0';
+        for (j = 0, i = i + 1; i < outputlen && res[i] != '\0'; ++i, ++j) {
+            passwd[j] = res[i];
+        }
+        passwd[j] = '\0';
+        printf("username: %s, \t passwd: %s\n", username, passwd);
 
 
+        if (!strcmp(username, allowed_user) && !strcmp(passwd, allowed_passwd))
+            return 0;
+        else return -1;
+    }
+
+    return 0;
+}
+
+int checkcontent(char *buf, int buflen) {
+    char bl[5] = "div";
+
+    if (strstr(buf, bl)) return -1;
     return 0;
 }
 
@@ -192,9 +201,8 @@ void dealonereq(void *arg)
 	}
 
 	int flag = getUserInfo(buf, authorization, bytes);
-	printf("%s\n", authorization);
 
-	if (checkuser(para->cl_addr, authorization) == -1) {
+	if (checkuser(para->cl_addr, authorization, flag) == -1) {
 	    close(accept_sockfd);
 	    return;
 	}
@@ -204,10 +212,13 @@ void dealonereq(void *arg)
 	while(1) {
 		int readSizeOnce = 0;
 		readSizeOnce = read(remotesocket, recvbuf, BUF_SIZE);				//get response from server.
+
 		if (readSizeOnce <= 0) {
 			break;
 		}
-		send(accept_sockfd, recvbuf, readSizeOnce,MSG_NOSIGNAL);
+        if (checkcontent(recvbuf, BUF_SIZE) != -1 ) {
+            send(accept_sockfd, recvbuf, readSizeOnce,MSG_NOSIGNAL);
+        }
 	}
 	close(remotesocket);
 	close(accept_sockfd);
