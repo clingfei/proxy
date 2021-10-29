@@ -15,6 +15,7 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include "base64.h"
 
 #define REMOTE_SERVER_PORT 80			
 #define BUF_SIZE 4096*4 				
@@ -55,7 +56,6 @@ int checkserver(char *hostname){
 }
 
 int checkclient(in_addr_t cli_ipaddr) {
-	printf("enter checkclient\n");   //if the output statement disturbs the experiments, please delete it.
 
 	/*please add some statments here to accomplish Experiemnt 3! 
 	The experiment's mission is to check the ip addr of the cliens, 
@@ -116,6 +116,42 @@ void print_severinfo(struct sockaddr_in server_addr)
 	return;
 }
 
+int checkuser(struct sockaddr_in cl_addr, char * authorization) {
+
+    char* const end = b64decode( authorization );
+    printf("authotization: %s\n", authorization);
+    int outputlen = end - authorization;
+    char res[outputlen + 1];
+    strncpy(res, authorization, outputlen);
+    printf("%s\n", res);
+
+
+    char username[outputlen];
+    char passwd[outputlen];
+    int i = 0, j = 0;
+    for (i = 0, j = 0; i < outputlen && res[i] != ':'; ++i, ++j) {
+        username[j] = res[i];
+    }
+    username[j] = '\0';
+    for (j = 0, i = i + 1; i < outputlen && res[i] != '\0'; ++i, ++j) {
+        passwd[j] = res[i];
+    }
+    passwd[j] = '\0';
+    printf("username: %s, \t passwd: %s\n", username, passwd);
+
+
+    //check whether the user and passwd is suit for ip
+    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
+    char *allowed_user = "bo", *allowed_passwd = "1234";
+    int allowedip;
+    inet_pton(AF_INET, ALLOWED_CLIENTIP, &allowedip);
+    if (cl_addr.sin_addr.s_addr == allowedip && !strcmp(username, allowed_user) && !strcmp(passwd, allowed_passwd))
+        return 0;
+    else return -1;
+
+
+    return 0;
+}
 
 void dealonereq(void *arg)
 {
@@ -157,6 +193,12 @@ void dealonereq(void *arg)
 
 	int flag = getUserInfo(buf, authorization, bytes);
 	printf("%s\n", authorization);
+
+	if (checkuser(para->cl_addr, authorization) == -1) {
+	    close(accept_sockfd);
+	    return;
+	}
+
     printf("buffer from client: %s\n", buf);
 	send(remotesocket, buf, bytes,MSG_NOSIGNAL);
 	while(1) {
@@ -246,9 +288,8 @@ int main(int argc, char **argv)
 	return 0;
 }
 
-int getUserInfo(char* buf,char *passwd,  int length)			//tested, must set this pointer[-6] to be '\n' again.
+int getUserInfo(char* buf,char *passwd,  int length)
 {
-
     char *p=strstr(buf,"Authorization:");
     int i,j = 0;
     if(!p) {
