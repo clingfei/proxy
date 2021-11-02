@@ -26,9 +26,16 @@ struct parameter {
     struct sockaddr_in cl_addr;
 };
 
+struct rules {
+    char allowed_ip[20];
+    struct rules * next;
+};
+
 pthread_mutex_t conp_mutex;
 char lastservername[256] = "";
 int lastserverip = 0;
+
+struct rules *iphead, *iprear;
 
 int checkserver(char *hostname){
 	/*please add some statments here to accomplish Experiemnt 4! 
@@ -65,14 +72,23 @@ int checkclient(in_addr_t cli_ipaddr) {
 	If you want to provide the proxy server to the clients, please return 1, otherwise return -1 */
 
 	//ALLOWED should be read from a text file, then use a loop to check whether the ip is allowed.
-    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
-    int allowedip;
-    inet_pton(AF_INET, ALLOWED_CLIENTIP, &allowedip);
-    if (allowedip != cli_ipaddr) {
-        printf("Client IP authentication failed !\n ");
-        return -1;
+	printf("client ip address check start.\n");
+	struct rules *head = (struct rules *)malloc(sizeof(struct rules));
+	//head->next = (struct rules *)malloc(sizeof(struct rules));
+	//strcpy(head->next->allowed_ip, "127.0.0.1");
+    struct rules *p = (struct rules *) malloc(sizeof (struct rules));
+
+    p = iphead;
+    while(p != NULL) {
+        int allowedip;
+        inet_pton(AF_INET, p->allowed_ip, &allowedip);
+        if (allowedip == cli_ipaddr) {
+            return 1;
+        }
+        else p = p->next;
     }
-	return 1;
+    printf("Client IP authentication failed !\n ");
+    return -1;
 }
 
 
@@ -224,6 +240,24 @@ void dealonereq(void *arg)
 	close(accept_sockfd);
 }
 
+void loadrules() {
+    iphead = (struct rules *)malloc(sizeof(struct rules));
+    iprear = iphead;
+    FILE *fp = fopen("rules/ip", "rw");
+    if (fp == NULL) {
+        printf("Open files failed.\n");
+        exit(-1);
+    }
+    char ip[20];
+    while (fscanf(fp, "%[^\\n]", ip) != EOF) {
+        iprear->next = (struct rules*)malloc(sizeof (struct rules));;
+        iprear = iprear->next;
+        strcpy(iprear->allowed_ip, ip);
+        //printf("%s\n", iprear->allowed_ip);
+    }
+    iprear->next = NULL;
+}
+
 /*
  * Main entry: read listening port from the command prompt
  */
@@ -235,7 +269,7 @@ int main(int argc, char **argv)
 	socklen_t sin_size = sizeof(struct sockaddr_in);
 	int sockfd, accept_sockfd, on = 1;
 	pthread_t Clitid;
-
+    loadrules();
 	while( (opt = getopt(argc, argv, "p:")) != EOF) {
 		switch(opt) {
 		case 'p':
