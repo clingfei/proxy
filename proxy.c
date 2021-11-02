@@ -26,16 +26,22 @@ struct parameter {
     struct sockaddr_in cl_addr;
 };
 
-struct rules {
+struct iprules {
     char allowed_ip[20];
-    struct rules * next;
+    struct iprules * next;
+};
+
+struct hostRules {
+    char host[256];
+    struct hostRules *next;
 };
 
 pthread_mutex_t conp_mutex;
 char lastservername[256] = "";
 int lastserverip = 0;
 
-struct rules *iphead, *iprear;
+struct iprules *iphead, *iprear;
+struct hostRules *hostHead, *hostRear;
 
 int checkserver(char *hostname){
 	/*please add some statments here to accomplish Experiemnt 4! 
@@ -46,10 +52,15 @@ int checkserver(char *hostname){
 	If you let the client access the server , please return 1, otherwise return -1 */
 	
     char *blocked_server = "127.0.0.1:8888";
-    if (strstr(hostname, blocked_server) != NULL) {
-        printf("the server has been blocked.\n");
-        return -1;
+    struct hostRules *p = hostHead->next;
+    while (p != NULL) {
+        if (strstr(hostname, p->host) != NULL) {
+            printf("the server has been blocked.\n");
+            return -1;
+        }
+        p = p->next;
     }
+    printf("checkserver passed.\n");
 	/*
 		#define BLOCKED_SERVER "bbs.sjtu.edu.cn"
 
@@ -73,10 +84,10 @@ int checkclient(in_addr_t cli_ipaddr) {
 
 	//ALLOWED should be read from a text file, then use a loop to check whether the ip is allowed.
 	printf("client ip address check start.\n");
-	struct rules *head = (struct rules *)malloc(sizeof(struct rules));
-	//head->next = (struct rules *)malloc(sizeof(struct rules));
+	struct iprules *head = (struct iprules *)malloc(sizeof(struct iprules));
+	//head->next = (struct iprules *)malloc(sizeof(struct iprules));
 	//strcpy(head->next->allowed_ip, "127.0.0.1");
-    struct rules *p = (struct rules *) malloc(sizeof (struct rules));
+    struct iprules *p = (struct iprules *) malloc(sizeof (struct iprules));
 
     p = iphead->next;
     while (p != NULL) {
@@ -187,6 +198,7 @@ int checkuser(struct sockaddr_in cl_addr, char * authorization, int flag) {
 }
 
 int checkcontent(char *buf, int buflen) {
+    return 1;
     char bl[5] = "div";
 
     if (strstr(buf, bl)) return -1;
@@ -234,6 +246,7 @@ void dealonereq(void *arg)
 	int flag = getUserInfo(buf, authorization, bytes);
 
 	if (checkuser(para->cl_addr, authorization, flag) == -1) {
+	    printf("user check failed\n");
 	    close(accept_sockfd);
 	    return;
 	}
@@ -255,8 +268,8 @@ void dealonereq(void *arg)
 	close(accept_sockfd);
 }
 
-void loadrules() {
-    iphead = (struct rules *)malloc(sizeof(struct rules));
+void loadiprules() {
+    iphead = (struct iprules *)malloc(sizeof(struct iprules));
     iprear = iphead;
     FILE *fp = fopen("rules/ip", "rw");
     if (fp == NULL) {
@@ -265,12 +278,27 @@ void loadrules() {
     }
     char ip[20];
     while (fscanf(fp, "%s", ip) != EOF) {
-        iprear->next = (struct rules*)malloc(sizeof (struct rules));;
+        iprear->next = (struct iprules*)malloc(sizeof (struct iprules));;
         iprear = iprear->next;
         strcpy(iprear->allowed_ip, ip);
         //printf("%s\n", iprear->allowed_ip);
     }
     iprear->next = NULL;
+
+    hostHead = (struct hostRules *)malloc(sizeof(struct hostRules));
+    hostRear = hostHead;
+    fp = fopen("rules/hostname", "rw");
+    if (fp == NULL) {
+        printf("Open hostname file failed.\n");
+        exit(-1);
+    }
+    char hostname[256];
+    while (fscanf(fp, "%s", hostname) != EOF) {
+        hostRear->next = (struct hostRules*)malloc(sizeof(struct hostRules));
+        hostRear = hostRear->next;
+        strcpy(hostRear->host, hostname);
+    }
+    hostRear->next = NULL;
 }
 
 /*
@@ -284,7 +312,7 @@ int main(int argc, char **argv)
 	socklen_t sin_size = sizeof(struct sockaddr_in);
 	int sockfd, accept_sockfd, on = 1;
 	pthread_t Clitid;
-    loadrules();
+    loadiprules();
 	while( (opt = getopt(argc, argv, "p:")) != EOF) {
 		switch(opt) {
 		case 'p':
