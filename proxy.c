@@ -78,17 +78,32 @@ int checkclient(in_addr_t cli_ipaddr) {
 	//strcpy(head->next->allowed_ip, "127.0.0.1");
     struct rules *p = (struct rules *) malloc(sizeof (struct rules));
 
-    p = iphead;
-    while(p != NULL) {
+    p = iphead->next;
+    while (p != NULL) {
         int allowedip;
         inet_pton(AF_INET, p->allowed_ip, &allowedip);
         if (allowedip == cli_ipaddr) {
+            printf("ip address check passed\n");
             return 1;
         }
         else p = p->next;
     }
+    printf("%u, %s\n", strlen(iphead->next->allowed_ip), iphead->next->allowed_ip);
+    printf("%u, %s\n", strlen(iprear->allowed_ip), iphead->next->allowed_ip);
+    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
+    printf("%u\n", strlen(ALLOWED_CLIENTIP));
+    /*
+    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
+    int allowedip;
+    inet_pton(AF_INET, ALLOWED_CLIENTIP, &allowedip);
+    if (allowedip != cli_ipaddr) {
+        printf("Client IP authentication failed !\n ");
+        return -1;
+    }
+    return 1;*/
     printf("Client IP authentication failed !\n ");
     return -1;
+
 }
 
 
@@ -249,7 +264,7 @@ void loadrules() {
         exit(-1);
     }
     char ip[20];
-    while (fscanf(fp, "%[^\\n]", ip) != EOF) {
+    while (fscanf(fp, "%s", ip) != EOF) {
         iprear->next = (struct rules*)malloc(sizeof (struct rules));;
         iprear = iprear->next;
         strcpy(iprear->allowed_ip, ip);
