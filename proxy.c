@@ -28,6 +28,9 @@ struct parameter {
 
 struct iprules {
     char allowed_ip[20];
+    char username[20];
+    char passwd[256];
+    int sign;               //check whether authorization is needed.
     struct iprules * next;
 };
 
@@ -36,12 +39,18 @@ struct hostRules {
     struct hostRules *next;
 };
 
+struct ctRules {
+    char text[512];
+    struct ctRules *next;
+};
+
 pthread_mutex_t conp_mutex;
 char lastservername[256] = "";
 int lastserverip = 0;
 
 struct iprules *iphead, *iprear;
 struct hostRules *hostHead, *hostRear;
+struct ctRules *ctHead, *ctRear;
 
 int checkserver(char *hostname){
 	/*please add some statments here to accomplish Experiemnt 4! 
@@ -158,50 +167,58 @@ void print_severinfo(struct sockaddr_in server_addr)
 	return;
 }
 
-int checkuser(struct sockaddr_in cl_addr, char * authorization, int flag) {
+int checkuser(struct sockaddr_in cl_addr, char * authorization, int flag) {             //flag 用于判断客户连接时是否有Authorization
     //check whether the user and passwd is suit for ip
-    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
-    char *allowed_user = "bo", *allowed_passwd = "1234";
-    int allowedip;
-    inet_pton(AF_INET, ALLOWED_CLIENTIP, &allowedip);
+    //char ALLOWED_CLIENTIP[20] = "127.0.0.1";
+    //char *allowed_user = "bo", *allowed_passwd = "1234";
+    struct iprules *p = iphead->next;
+    while(p != NULL) {
+        int allowedip;
+        inet_pton(AF_INET, p->allowed_ip, &allowedip);
 
-    if (cl_addr.sin_addr.s_addr == allowedip) {
-        if (flag == -1) return -1;
+        if (cl_addr.sin_addr.s_addr == allowedip) {
+            if (p->sign == 0) return 0;
+            if (flag == -1) return -1;
 
-        char *const end = b64decode(authorization);
-        printf("authotization: %s\n", authorization);
-        int outputlen = end - authorization;
-        char res[outputlen + 1];
-        strncpy(res, authorization, outputlen);
-        printf("%s\n", res);
+            char *const end = b64decode(authorization);
+            printf("authotization: %s\n", authorization);
+            int outputlen = end - authorization;
+            char res[outputlen + 1];
+            strncpy(res, authorization, outputlen);
+            printf("%s\n", res);
 
-        char username[outputlen];
-        char passwd[outputlen];
-        int i = 0, j = 0;
-        for (i = 0, j = 0; i < outputlen && res[i] != ':'; ++i, ++j) {
-            username[j] = res[i];
+            char username[outputlen];
+            char passwd[outputlen];
+            int i = 0, j = 0;
+            for (i = 0, j = 0; i < outputlen && res[i] != ':'; ++i, ++j) {
+                username[j] = res[i];
+            }
+            username[j] = '\0';
+            for (j = 0, i = i + 1; i < outputlen && res[i] != '\0'; ++i, ++j) {
+                passwd[j] = res[i];
+            }
+            passwd[j] = '\0';
+            printf("username: %s, \t passwd: %s\n", username, passwd);
+
+
+            if (!strcmp(username, p->username) && !strcmp(passwd, p->passwd))
+                return 0;
+            else return -1;
         }
-        username[j] = '\0';
-        for (j = 0, i = i + 1; i < outputlen && res[i] != '\0'; ++i, ++j) {
-            passwd[j] = res[i];
-        }
-        passwd[j] = '\0';
-        printf("username: %s, \t passwd: %s\n", username, passwd);
-
-
-        if (!strcmp(username, allowed_user) && !strcmp(passwd, allowed_passwd))
-            return 0;
-        else return -1;
+        p = p->next;
     }
-
-    return 0;
+    return -1;
 }
 
 int checkcontent(char *buf, int buflen) {
-    return 1;
-    char bl[5] = "div";
-
-    if (strstr(buf, bl)) return -1;
+    struct ctRules *p = ctHead->next;
+    while (p != NULL) {
+        if (strstr(buf, p->text) != NULL) {
+            printf("the content has been blocked.\n");
+            return -1;
+        }
+        p = p->next;
+    }
     return 0;
 }
 
@@ -268,7 +285,7 @@ void dealonereq(void *arg)
 	close(accept_sockfd);
 }
 
-void loadiprules() {
+void loadrules() {
     iphead = (struct iprules *)malloc(sizeof(struct iprules));
     iprear = iphead;
     FILE *fp = fopen("rules/ip", "rw");
@@ -276,12 +293,31 @@ void loadiprules() {
         printf("Open files failed.\n");
         exit(-1);
     }
-    char ip[20];
+    char ip[256];
     while (fscanf(fp, "%s", ip) != EOF) {
+        /*
         iprear->next = (struct iprules*)malloc(sizeof (struct iprules));;
         iprear = iprear->next;
         strcpy(iprear->allowed_ip, ip);
         //printf("%s\n", iprear->allowed_ip);
+        */
+
+        char *p1, *p2;
+        p1 = strstr(ip, ",");
+        p2 = strstr(ip, ":");
+        iprear->next = (struct iprules*)malloc(sizeof (struct iprules));;
+        iprear = iprear->next;
+        if (p1 != NULL) {
+            strncpy(iprear->allowed_ip, ip, p1 - ip);
+            strncpy(iprear->username, ip + (p1 - ip) + 1, p2 - p1 - 1);
+            strncpy(iprear->passwd, ip + (p2 - ip) + 1, strlen(ip) - (p2 - ip));
+            iprear->sign = 1;
+        }
+        else {
+            strcpy(iprear->allowed_ip, ip);
+            iprear->sign = 0;
+        }
+        printf("%s %s %s\n", iprear->allowed_ip, iprear->username, iprear->passwd);
     }
     iprear->next = NULL;
 
@@ -299,6 +335,24 @@ void loadiprules() {
         strcpy(hostRear->host, hostname);
     }
     hostRear->next = NULL;
+
+    printf("test");
+    ctHead = (struct ctRules *)malloc(sizeof(struct ctRules));
+    ctRear = ctHead;
+    fp = fopen("rules/content", "rw");
+    if (fp == NULL) {
+        printf("Open content files failed.\n");
+        exit(-1);
+    }
+    char content[512];
+    while (fgets(content, 512, fp) != NULL) {
+        printf("%s\n", content);
+        ctRear->next = (struct ctRules *) malloc(sizeof(struct ctRules));
+        ctRear = ctRear->next;
+        strncpy(ctRear->text, content, strlen(content) - 1);
+    }
+    ctRear->next = NULL;
+
 }
 
 /*
@@ -312,7 +366,7 @@ int main(int argc, char **argv)
 	socklen_t sin_size = sizeof(struct sockaddr_in);
 	int sockfd, accept_sockfd, on = 1;
 	pthread_t Clitid;
-    loadiprules();
+    loadrules();
 	while( (opt = getopt(argc, argv, "p:")) != EOF) {
 		switch(opt) {
 		case 'p':
