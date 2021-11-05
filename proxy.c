@@ -31,20 +31,27 @@ struct iprules {
     char username[20];
     char passwd[256];
     int sign;               //check whether authorization is needed.
+    int num;
     struct iprules * next;
 };
 
 struct hostRules {
     char host[256];
+    int num;
     struct hostRules *next;
 };
 
 struct ctRules {
     char text[512];
+    int num ;
     struct ctRules *next;
 };
 
 pthread_mutex_t conp_mutex;
+pthread_mutex_t iprules_mutex;
+pthread_mutex_t hostrules_mutex;
+pthread_mutex_t ctrules_mutex;
+
 char lastservername[256] = "";
 int lastserverip = 0;
 
@@ -93,25 +100,27 @@ int checkclient(in_addr_t cli_ipaddr) {
 
 	//ALLOWED should be read from a text file, then use a loop to check whether the ip is allowed.
 	printf("client ip address check start.\n");
-	struct iprules *head = (struct iprules *)malloc(sizeof(struct iprules));
+	//struct iprules *head = (struct iprules *)malloc(sizeof(struct iprules));
 	//head->next = (struct iprules *)malloc(sizeof(struct iprules));
 	//strcpy(head->next->allowed_ip, "127.0.0.1");
-    struct iprules *p = (struct iprules *) malloc(sizeof (struct iprules));
-
+    struct iprules *p = (struct iprules *)malloc(sizeof (struct iprules));
+    pthread_mutex_lock(&iprules_mutex);
     p = iphead->next;
     while (p != NULL) {
         int allowedip;
         inet_pton(AF_INET, p->allowed_ip, &allowedip);
         if (allowedip == cli_ipaddr) {
             printf("ip address check passed\n");
+            pthread_mutex_unlock(&iprules_mutex);
             return 1;
         }
         else p = p->next;
     }
-    printf("%u, %s\n", strlen(iphead->next->allowed_ip), iphead->next->allowed_ip);
-    printf("%u, %s\n", strlen(iprear->allowed_ip), iphead->next->allowed_ip);
-    char ALLOWED_CLIENTIP[20] = "127.0.0.1";
-    printf("%u\n", strlen(ALLOWED_CLIENTIP));
+    pthread_mutex_unlock(&iprules_mutex);
+    //printf("%u, %s\n", strlen(iphead->next->allowed_ip), iphead->next->allowed_ip);
+    //printf("%u, %s\n", strlen(iprear->allowed_ip), iphead->next->allowed_ip);
+    //char ALLOWED_CLIENTIP[20] = "127.0.0.1";
+    //printf("%u\n", strlen(ALLOWED_CLIENTIP));
     /*
     char ALLOWED_CLIENTIP[20] = "127.0.0.1";
     int allowedip;
@@ -121,7 +130,7 @@ int checkclient(in_addr_t cli_ipaddr) {
         return -1;
     }
     return 1;*/
-    printf("Client IP authentication failed !\n ");
+    //printf("Client IP authentication failed !\n ");
     return -1;
 
 }
@@ -171,14 +180,21 @@ int checkuser(struct sockaddr_in cl_addr, char * authorization, int flag) {     
     //check whether the user and passwd is suit for ip
     //char ALLOWED_CLIENTIP[20] = "127.0.0.1";
     //char *allowed_user = "bo", *allowed_passwd = "1234";
+    pthread_mutex_lock(&iprules_mutex);
     struct iprules *p = iphead->next;
     while(p != NULL) {
         int allowedip;
         inet_pton(AF_INET, p->allowed_ip, &allowedip);
 
         if (cl_addr.sin_addr.s_addr == allowedip) {
-            if (p->sign == 0) return 0;
-            if (flag == -1) return -1;
+            if (p->sign == 0 ) {
+                pthread_mutex_unlock(&iprules_mutex);
+                return 0;
+            }
+            if (flag == -1) {
+                pthread_mutex_unlock(&iprules_mutex);
+                return -1;
+            }
 
             char *const end = b64decode(authorization);
             printf("authotization: %s\n", authorization);
@@ -201,12 +217,18 @@ int checkuser(struct sockaddr_in cl_addr, char * authorization, int flag) {     
             printf("username: %s, \t passwd: %s\n", username, passwd);
 
 
-            if (!strcmp(username, p->username) && !strcmp(passwd, p->passwd))
+            if (!strcmp(username, p->username) && !strcmp(passwd, p->passwd)) {
+                pthread_mutex_unlock(&iprules_mutex);
                 return 0;
-            else return -1;
+            }
+            else  {
+                pthread_mutex_unlock(&iprules_mutex);
+                return -1;
+            }
         }
         p = p->next;
     }
+    pthread_mutex_unlock(&iprules_mutex);
     return -1;
 }
 
@@ -249,7 +271,9 @@ void dealonereq(void *arg)
 		close(accept_sockfd);
 		return;
 	}
+
 	if (checkserver(hostname) != 1){
+	    printf("The host %s has been blocked.\n", hostname);
 		close(accept_sockfd);
 		return; 
 	}
@@ -293,6 +317,7 @@ void loadrules() {
         printf("Open files failed.\n");
         exit(-1);
     }
+    int num = 0;
     char ip[256];
     while (fscanf(fp, "%s", ip) != EOF) {
         /*
@@ -301,11 +326,11 @@ void loadrules() {
         strcpy(iprear->allowed_ip, ip);
         //printf("%s\n", iprear->allowed_ip);
         */
-
+        num++;
         char *p1, *p2;
         p1 = strstr(ip, ",");
         p2 = strstr(ip, ":");
-        iprear->next = (struct iprules*)malloc(sizeof (struct iprules));;
+        iprear->next = (struct iprules*)malloc(sizeof (struct iprules));
         iprear = iprear->next;
         if (p1 != NULL) {
             strncpy(iprear->allowed_ip, ip, p1 - ip);
@@ -320,7 +345,10 @@ void loadrules() {
         printf("%s %s %s\n", iprear->allowed_ip, iprear->username, iprear->passwd);
     }
     iprear->next = NULL;
+    iphead->num = num;
+    fclose(fp);
 
+    num = 0;
     hostHead = (struct hostRules *)malloc(sizeof(struct hostRules));
     hostRear = hostHead;
     fp = fopen("rules/hostname", "rw");
@@ -330,13 +358,16 @@ void loadrules() {
     }
     char hostname[256];
     while (fscanf(fp, "%s", hostname) != EOF) {
+        num++;
         hostRear->next = (struct hostRules*)malloc(sizeof(struct hostRules));
         hostRear = hostRear->next;
         strcpy(hostRear->host, hostname);
     }
     hostRear->next = NULL;
+    hostHead->num = num;
+    fclose(fp);
 
-    printf("test");
+    num = 0;
     ctHead = (struct ctRules *)malloc(sizeof(struct ctRules));
     ctRear = ctHead;
     fp = fopen("rules/content", "rw");
@@ -346,13 +377,154 @@ void loadrules() {
     }
     char content[512];
     while (fgets(content, 512, fp) != NULL) {
+        num++;
         printf("%s\n", content);
         ctRear->next = (struct ctRules *) malloc(sizeof(struct ctRules));
         ctRear = ctRear->next;
         strncpy(ctRear->text, content, strlen(content) - 1);
     }
     ctRear->next = NULL;
+    ctHead->num = num;
+    fclose(fp);
+}
 
+void list(char *target) {
+    if (strstr(target, "IP") || strstr(target, "ip") || strstr(target, "Ip") || strstr(target, "iP")) {
+        struct iprules *p = iphead->next;
+        int seq = 0;
+        printf("SEQ \t\t\t IP \t\t\t USERNAME \t\t\t PASSWORD\n");
+        while (p != NULL) {
+            if (p->sign == 1)
+                printf("%d \t\t\t %s \t\t %s \t\t\t\t %s\n", ++seq, p->allowed_ip, p->username, p->passwd);
+            else
+                printf("%d \t\t\t %s \t\t\n", ++seq, p->allowed_ip);
+            p = p->next;
+
+        }
+    }
+    else if (strstr(target, "HOST") || strstr(target, "Host") || strstr(target, "host")) {
+        struct hostRules *p = hostHead->next;
+        int seq = 0;
+        printf("SEQ \t\t\t\t\t HOSTNAME\n");
+        while (p != NULL) {
+            printf("%d \t\t\t\t\t %s\n", ++seq, p->host);
+            p = p->next;
+        }
+    }
+    else if (strstr(target, "Content") || strstr(target, "CONTENT")) {
+        struct ctRules *p = ctHead->next;
+        int seq = 0;
+        printf("SEQ \t\t\t\t Content\n");
+        while (p != NULL) {
+            printf("%d \t\t\t\t %s\n", ++seq, p->text);
+            p = p->next;
+
+        }
+    }
+    printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+}
+
+void modify(char *target) {
+    if (strstr(target, "IP") || strstr(target, "ip") || strstr(target, "Ip") || strstr(target, "iP")) {
+        int seq;
+        char ip[20];
+        char username[20];
+        char passwd[256];
+
+        scanf("%d %s %s %s", &seq, ip, username, passwd);
+        if (seq > iphead->num) {
+            printf("There are only %d rules.\n", iphead->num);
+            printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+            return;
+        }
+        else {
+            struct iprules *p = iphead->next;
+            while (--seq > 0) {
+                p = p->next;
+            }
+            pthread_mutex_lock(&iprules_mutex);
+            strcpy(p->allowed_ip, ip);
+            if (strcmp(username, "None") == 0)
+                p->sign = 0;
+            else {
+                p->sign = 1;
+                strcpy(p->username, username);
+                strcpy(p->passwd, passwd);
+            }
+            pthread_mutex_unlock(&iprules_mutex);
+        }
+    }
+    else if (strstr(target, "HOST") || strstr(target, "Host") || strstr(target, "host")) {
+        int seq;
+        char hostname[256];
+
+        scanf("%d %s", &seq, hostname);
+        if (seq > hostHead->num) {
+            printf("There are only %d rules.\n", hostHead->num);
+            printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+           return;
+        }
+        else {
+            struct hostRules *p = hostHead->next;
+            while (--seq > 0) {
+                p = p->next;
+            }
+            pthread_mutex_lock(&hostrules_mutex);
+            strcpy(p->host, hostname);
+            pthread_mutex_unlock(&hostrules_mutex);
+        }
+    }
+    else if (strstr(target, "Content") || strstr(target, "CONTENT")) {
+        int seq;
+        char text[512];
+
+        scanf("%d %s", &seq, text);
+        if (seq > ctHead->num) {
+            printf("There are only %d rules.\n", ctHead->num);
+            printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content.\n");
+            return;
+        }
+        else {
+            struct ctRules *p = ctHead->next;
+            while (--seq > 0) {
+                p = p->next;
+            }
+            pthread_mutex_lock(&ctrules_mutex);
+            strcpy(p->text, text);
+            pthread_mutex_unlock(&hostrules_mutex);
+        }
+    }
+    printf("Modify successfully.\n");
+    return;
+}
+
+void add(char *target) {
+    return;
+}
+
+void delete(char *target) {
+    return;
+}
+
+void manage(void *arg) {
+    printf("pthread created successfully.\n");
+    printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+    char instructions[10], target[10];
+    while (scanf("%s %s", instructions, target)) {
+
+        switch(instructions[0]) {
+            case 'L': list(target);break;
+            case 'M': modify(target);break;
+            case 'A': add(target);break;
+            case 'D': delete(target);break;
+            default: break;
+        }
+    }
 }
 
 /*
@@ -366,7 +538,11 @@ int main(int argc, char **argv)
 	socklen_t sin_size = sizeof(struct sockaddr_in);
 	int sockfd, accept_sockfd, on = 1;
 	pthread_t Clitid;
+	pthread_t Userid;
     loadrules();
+
+    pthread_create(&Userid, NULL, (void*)manage, NULL);
+
 	while( (opt = getopt(argc, argv, "p:")) != EOF) {
 		switch(opt) {
 		case 'p':

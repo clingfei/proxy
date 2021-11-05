@@ -50,19 +50,8 @@ server port: xxxxx, client addr : xxxxx
 
 在http报文中会出现Authorization域
 
-
-
-
-模板
-```asm 
-buffer from client: POST http://127.0.0.1:80/ HTTP/1.1
-Host: 127.0.0.1
-User-Agent: curl/7.58.0
-Accept: */*
-Proxy-Connection: Keep-Alive
-Content-Length: 22
-Content-Type: application/x-www-form-urlencoded
-
-login=clf&password=123
-
+6. 通过代理访问其他服务器:
+```asm
+curl -u 'bob:1234' -x 127.0.0.1:8080 www.baidu.com
 ```
+-x 指定代理服务器地址，实际上就是防火墙所在的主机和端口
