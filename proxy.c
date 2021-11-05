@@ -71,7 +71,7 @@ int checkserver(char *hostname){
     struct hostRules *p = hostHead->next;
     while (p != NULL) {
         if (strstr(hostname, p->host) != NULL) {
-            printf("the server has been blocked.\n");
+            printf("The host %s has been blocked.\n", hostname);
             return -1;
         }
         p = p->next;
@@ -273,7 +273,6 @@ void dealonereq(void *arg)
 	}
 
 	if (checkserver(hostname) != 1){
-	    printf("The host %s has been blocked.\n", hostname);
 		close(accept_sockfd);
 		return; 
 	}
@@ -303,6 +302,10 @@ void dealonereq(void *arg)
 		}
         if (checkcontent(recvbuf, BUF_SIZE) != -1 ) {
             send(accept_sockfd, recvbuf, readSizeOnce,MSG_NOSIGNAL);
+        }
+        else {
+            close(accept_sockfd);
+            return;
         }
 	}
 	close(remotesocket);
@@ -503,6 +506,50 @@ void modify(char *target) {
 }
 
 void add(char *target) {
+    if (strstr(target, "IP") || strstr(target, "ip") || strstr(target, "Ip") || strstr(target, "iP")) {
+        char ip[20];
+        char username[20];
+        char passwd[256];
+        scanf("%s %s %s", ip, username, passwd);
+        struct iprules *p = (struct iprules *)malloc(sizeof(struct iprules));
+        strcpy(p->allowed_ip, ip);
+        if (strcmp(username, "None") != 0) {
+            strcpy(p->username, username);
+            strcpy(p->passwd, passwd);
+            p->sign = 1;
+        }
+        else
+            p->sign = 0;
+        p->next = NULL;
+        pthread_mutex_lock(&iprules_mutex);
+        iprear->next = p;
+        iprear = iprear->next;
+        pthread_mutex_unlock(&iprules_mutex);
+    }
+    else if (strstr(target, "HOST") || strstr(target, "Host") || strstr(target, "host")) {
+        char hostname[256];
+
+        scanf("%s", hostname);
+        struct hostRules *p = (struct hostRules *)malloc(sizeof(struct hostRules));
+        p->next = NULL;
+        strcpy(p->host, hostname);
+        pthread_mutex_lock(&hostrules_mutex);
+        hostRear->next = p;
+        hostRear = hostRear->next;
+        pthread_mutex_unlock(&hostrules_mutex);
+    }
+    else if (strstr(target, "Content") || strstr(target, "CONTENT")) {
+        char text[512];
+
+        scanf("%s", text);
+        struct ctRules *p = (struct ctRules *)malloc(sizeof(struct ctRules));
+        p->next = NULL;
+        strcpy(p->text, text);
+        pthread_mutex_lock(&ctrules_mutex);
+        ctRear->next = p;
+        ctRear = ctRear->next;
+        pthread_mutex_unlock(&ctrules_mutex);
+    }
     return;
 }
 
