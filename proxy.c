@@ -347,7 +347,7 @@ void loadrules() {
             strcpy(iprear->allowed_ip, ip);
             iprear->sign = 0;
         }
-        printf("%s %s %s\n", iprear->allowed_ip, iprear->username, iprear->passwd);
+        //printf("%s %s %s\n", iprear->allowed_ip, iprear->username, iprear->passwd);
     }
     iprear->next = NULL;
     iphead->num = num;
@@ -383,7 +383,7 @@ void loadrules() {
     char content[512];
     while (fgets(content, 512, fp) != NULL) {
         num++;
-        printf("%s\n", content);
+        //printf("%s\n", content);
         ctRear->next = (struct ctRules *) malloc(sizeof(struct ctRules));
         ctRear = ctRear->next;
         strncpy(ctRear->text, content, strlen(content) - 1);

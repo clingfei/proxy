@@ -1,57 +1,61 @@
 # proxy
 
+## 编译
+```
+mkdir rules
+touch ip content hostname
+make clean && make
+```
 
-## TODO:
-1. int checkserver(char *hostname)
+## 配置规则
+* Add target
+* Modify target
+* Delete target seq   
+* List target
+* Quit
 
-修改blocked_server设置方式
+target 包括 Content, Host, IP
 
-2. int checkclient(in_addr_t cli_ipaddr)
+seq 为 List中指定的序号
 
-修改allowed_ip 设置方式
-
-3. remote connect failed等返回客户端提示信息
-
+IP的输入规则:
+`` ip username password``
+若无需用户验证，则用None代替username和password
 
 ## 测试：
 
-1. 启动apache2:
-
-`sudo /etc/init.d/apache2 start`
-
-2. 配置代理:
-
-```
-export http_proxy='127.0.0.1:port'
-export https_proxy='127.0.0.1:port'
-```
-   
-3. 运行proxy
-
-`proxy -p port`
-
-此处的Port与配置代理中的Port一致   
-
-4. 使用curl测试:
-
-` curl ip:port`
-
-此处的Port为apache运行的端口，默认为80
-
-观察到proxy输出:
+使用curl
 ```asm
-client port: xxxxx, client addr : xxxxx
-server port: xxxxx, client addr : xxxxx
+curl -x serveraddr:port desthost    //通过serveraddr上的指定代理访问目标服务器
+curl -u username:passwd -x serveraddr:port desthost  //使用Authorization用户验证
 ```
 
-5. 为http连接指定用户名和密码
+* List IP
+![img.png](img/1.jpg)
 
-`curl -u 'username:password' ip:port`
+* List Host
+  ![img.png](img/2.jpg)
+  
+* List Content
 
-在http报文中会出现Authorization域
+  ![img.png](img/3.jpg)
 
-6. 通过代理访问其他服务器:
-```asm
-curl -u 'bob:1234' -x 127.0.0.1:8080 www.baidu.com
-```
--x 指定代理服务器地址，实际上就是防火墙所在的主机和端口
+* Delete Content
+
+  ![img.png](img/4.jpg)
+
+* Add IP
+  ![img.png](img/5.jpg)
+
+* Host
+
+  ![img.png](img/7.jpg)
+  
+* Content
+
+  ![img.png](img/9.jpg)
+  
+* 正常
+
+  ![img.png](img/10.jpg)
+  
