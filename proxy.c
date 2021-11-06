@@ -51,9 +51,11 @@ pthread_mutex_t conp_mutex;
 pthread_mutex_t iprules_mutex;
 pthread_mutex_t hostrules_mutex;
 pthread_mutex_t ctrules_mutex;
+pthread_mutex_t quit_mutex;
 
 char lastservername[256] = "";
 int lastserverip = 0;
+volatile int q_flag = 0;
 
 struct iprules *iphead, *iprear;
 struct hostRules *hostHead, *hostRear;
@@ -315,7 +317,7 @@ void dealonereq(void *arg)
 void loadrules() {
     iphead = (struct iprules *)malloc(sizeof(struct iprules));
     iprear = iphead;
-    FILE *fp = fopen("rules/ip", "rw");
+    FILE *fp = fopen("rules/ip", "r");
     if (fp == NULL) {
         printf("Open files failed.\n");
         exit(-1);
@@ -354,7 +356,7 @@ void loadrules() {
     num = 0;
     hostHead = (struct hostRules *)malloc(sizeof(struct hostRules));
     hostRear = hostHead;
-    fp = fopen("rules/hostname", "rw");
+    fp = fopen("rules/hostname", "r");
     if (fp == NULL) {
         printf("Open hostname file failed.\n");
         exit(-1);
@@ -373,7 +375,7 @@ void loadrules() {
     num = 0;
     ctHead = (struct ctRules *)malloc(sizeof(struct ctRules));
     ctRear = ctHead;
-    fp = fopen("rules/content", "rw");
+    fp = fopen("rules/content", "r");
     if (fp == NULL) {
         printf("Open content files failed.\n");
         exit(-1);
@@ -524,6 +526,7 @@ void add(char *target) {
         pthread_mutex_lock(&iprules_mutex);
         iprear->next = p;
         iprear = iprear->next;
+        iphead->num++;
         pthread_mutex_unlock(&iprules_mutex);
     }
     else if (strstr(target, "HOST") || strstr(target, "Host") || strstr(target, "host")) {
@@ -536,6 +539,7 @@ void add(char *target) {
         pthread_mutex_lock(&hostrules_mutex);
         hostRear->next = p;
         hostRear = hostRear->next;
+        hostHead->num++;
         pthread_mutex_unlock(&hostrules_mutex);
     }
     else if (strstr(target, "Content") || strstr(target, "CONTENT")) {
@@ -548,27 +552,144 @@ void add(char *target) {
         pthread_mutex_lock(&ctrules_mutex);
         ctRear->next = p;
         ctRear = ctRear->next;
+        ctHead->num++;
         pthread_mutex_unlock(&ctrules_mutex);
     }
+    printf("ADD successfully.\n");
     return;
 }
 
 void delete(char *target) {
+    if (strstr(target, "IP") || strstr(target, "ip") || strstr(target, "Ip") || strstr(target, "iP")) {
+        int seq;
+        scanf("%d", &seq);
+        if (seq > iphead->num) {
+            printf("There are only %d rules.\n", iphead->num);
+            printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+            return;
+        }
+        else {
+            struct iprules *p = iphead;
+            while (--seq > 0)
+                p = p->next;
+            struct iprules *tmp = p->next;
+
+            pthread_mutex_lock(&iprules_mutex);
+            p->next = tmp->next;
+            if (tmp == iprear)
+                iprear = p;
+            iphead->num--;
+            pthread_mutex_unlock(&iprules_mutex);
+
+            free(tmp);
+        }
+    }
+    else if (strstr(target, "HOST") || strstr(target, "Host") || strstr(target, "host")) {
+        int seq;
+        scanf("%d", &seq);
+        if (seq > hostHead->num) {
+            printf("There are only %d rules.\n", hostHead->num);
+            printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+            return;
+        }
+        else {
+            struct hostRules *p = hostHead;
+            while (--seq > 0)
+                p = p->next;
+            struct hostRules *tmp = p->next;
+
+            pthread_mutex_lock(&hostrules_mutex);
+            p->next = tmp->next;
+            if (tmp == hostRear)
+                hostRear = p;
+            hostHead->num--;
+            pthread_mutex_unlock(&hostrules_mutex);
+
+            free(tmp);
+        }
+    }
+    else if (strstr(target, "Content") || strstr(target, "CONTENT")) {
+        int seq;
+        scanf ("%d", &seq);
+        if (seq > ctHead->num) {
+            printf("There are only %d rules.\n", ctHead->num);
+            printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+           "Target Rules: IP, Host, Content\n");
+           return;
+        }
+        else {
+            struct ctRules *p = ctHead;
+            while (--seq > 0)
+                p = p->next;
+            struct ctRules *tmp = p->next;
+
+            pthread_mutex_lock(&ctrules_mutex);
+            p->next = tmp->next;
+            if (tmp == ctRear)
+                ctRear = p;
+            ctHead->num--;
+            pthread_mutex_unlock(&ctrules_mutex);
+
+            free(tmp);
+        }
+    }
+    printf("Delete successfully.\n");
+    return;
+}
+
+void quit() {
+    FILE *fp = fopen("rules/ip", "w");
+    struct iprules *p1 = iphead->next;
+    pthread_mutex_lock(&iprules_mutex);
+    while (p1 != NULL) {
+        if (p1->sign == 1) {
+            fprintf(fp, "%s,%s:%s\n", p1->allowed_ip, p1->username, p1->passwd);
+        }
+        else fprintf(fp, "%s\n", p1->allowed_ip);
+        p1 = p1->next;
+    }
+    pthread_mutex_unlock(&iprules_mutex);
+    fclose(fp);
+
+    fp = fopen("rules/hostname", "w");
+    struct hostRules *p2 = hostHead->next;
+    pthread_mutex_lock(&hostrules_mutex);
+    while (p2 != NULL) {
+        fprintf(fp, "%s\n", p2->host);
+        p2 = p2->next;
+    }
+    pthread_mutex_unlock(&hostrules_mutex);
+    fclose(fp);
+
+
+    fp = fopen("rules/content", "w");
+    struct ctRules *p3 = ctHead->next;
+    pthread_mutex_lock(&ctrules_mutex);
+    while (p3 != NULL) {
+        fprintf(fp, "%s\n", p3->text);
+        p3 = p3->next;
+    }
+    pthread_mutex_unlock(&ctrules_mutex);
+    fclose(fp);
+
     return;
 }
 
 void manage(void *arg) {
     printf("pthread created successfully.\n");
-    printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete "\
+    printf("Manage instructions: [L]ist, [M]odify, [A]dd, [D]elete, [Q]uit "\
            "Target Rules: IP, Host, Content\n");
     char instructions[10], target[10];
-    while (scanf("%s %s", instructions, target)) {
+    while (scanf("%s", instructions)) {
 
         switch(instructions[0]) {
-            case 'L': list(target);break;
-            case 'M': modify(target);break;
-            case 'A': add(target);break;
-            case 'D': delete(target);break;
+            case 'L': scanf ("%s", target);list(target);break;
+            case 'M': scanf ("%s", target);modify(target);break;
+            case 'A': scanf ("%s", target);add(target);break;
+            case 'D': scanf ("%s", target);delete(target);break;
+            case 'Q': quit();pthread_mutex_lock(&quit_mutex); q_flag = 1; pthread_mutex_unlock(&quit_mutex);break;
             default: break;
         }
     }
@@ -629,6 +750,13 @@ int main(int argc, char **argv)
 		return;
 	}
 	while (1) {
+	    pthread_mutex_lock(&quit_mutex);
+	    if (q_flag == 1) {
+	        printf("quit");
+	        pthread_mutex_unlock(&quit_mutex);
+	        exit(1);
+	    }
+	    pthread_mutex_unlock(&quit_mutex);
 		accept_sockfd = accept(sockfd, (struct sockaddr *)&cl_addr, &sin_size); 	// block for connection request
 		if (accept_sockfd < 0) {
 			printf("accept failed");
