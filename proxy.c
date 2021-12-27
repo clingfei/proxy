@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 #include "base64.h"
+#include <signal.h>
 
 #define REMOTE_SERVER_PORT 80			
 #define BUF_SIZE 4096*4 				
@@ -689,95 +690,98 @@ void manage(void *arg) {
             case 'M': scanf ("%s", target);modify(target);break;
             case 'A': scanf ("%s", target);add(target);break;
             case 'D': scanf ("%s", target);delete(target);break;
-            case 'Q': quit();pthread_mutex_lock(&quit_mutex); q_flag = 1; pthread_mutex_unlock(&quit_mutex);break;
+            case 'Q': quit();pthread_mutex_lock(&quit_mutex); q_flag = 1; pthread_mutex_unlock(&quit_mutex);pthread_exit(0);
             default: break;
         }
     }
 }
 
+void connThread(void *arg) {
+    short port = *(short *)arg;
+    struct sockaddr_in cl_addr,proxyserver_addr;
+    socklen_t sin_size = sizeof(struct sockaddr_in);
+    int sockfd, accept_sockfd, on = 1;
+    pthread_t Clitid;
+
+    //printf("Welcome to attend the experiments of designing a proxy firewall! \n");
+
+    memset(&proxyserver_addr, 0, sizeof(proxyserver_addr));							// zero proxyserver_addr
+    proxyserver_addr.sin_family = AF_INET;
+    proxyserver_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    proxyserver_addr.sin_port = htons(port);
+
+    sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);			// create socket
+    if (sockfd < 0) {
+        printf("Socket failed...Abort...\n");
+        return;
+    }
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(on));
+    if (bind(sockfd, (struct sockaddr *) &proxyserver_addr, sizeof(proxyserver_addr)) < 0) {
+        printf("Bind failed...Abort...\n");
+        return;
+    }
+    if (listen(sockfd, QUEUE_SIZE) < 0) {
+        printf("Listen failed...Abort...\n");
+        return;
+    }
+    while (1) {
+        accept_sockfd = accept(sockfd, (struct sockaddr *)&cl_addr, &sin_size); 	// block for connection request
+        if (accept_sockfd < 0) {
+            printf("accept failed");
+            continue;
+        }
+
+        print_clientinfo(cl_addr);
+
+        //printf("Received a request from %s:%u \n",(char*)inet_ntoa(cl_addr.sin_addr.s_addr),ntohs(cl_addr.sin_port));
+
+        if (checkclient(cl_addr.sin_addr.s_addr) == 1)
+        {
+            struct parameter para;
+            para.accept_sockfd = accept_sockfd;
+            para.cl_addr = cl_addr;
+            pthread_create(&Clitid,NULL,(void*)dealonereq,&para);
+        }
+        else
+            close(accept_sockfd);
+    }
+    return 0;
+}
 /*
  * Main entry: read listening port from the command prompt
  */
 int main(int argc, char **argv)
 {
-	short port = 0;
-	char opt;
-	struct sockaddr_in cl_addr,proxyserver_addr;
-	socklen_t sin_size = sizeof(struct sockaddr_in);
-	int sockfd, accept_sockfd, on = 1;
-	pthread_t Clitid;
-	pthread_t Userid;
-    loadrules();
+    short port = 0;
+    char opt;
 
+    while( (opt = getopt(argc, argv, "p:")) != EOF) {
+        switch(opt) {
+            case 'p':
+                port = (short) atoi(optarg);
+                break;
+            default:
+                printf("Usage: %s -p port\n", argv[0]);
+                return -1;
+        }
+    }
+
+    if (port == 0) {
+        printf("Invalid port number, try again. \n");
+        printf("Usage: %s -p port\n", argv[0]);
+        return -1;
+    }
+
+	pthread_t Userid;
+    pthread_t Connid;
+    loadrules();
+    pthread_create(&Connid, NULL, (void*)connThread, &port);
     pthread_create(&Userid, NULL, (void*)manage, NULL);
 
-	while( (opt = getopt(argc, argv, "p:")) != EOF) {
-		switch(opt) {
-		case 'p':
-			port = (short) atoi(optarg);
-			break;
-		default:
-			printf("Usage: %s -p port\n", argv[0]);
-			return -1;
-		}
-	}
+    pthread_join(Userid,NULL);
+    pthread_kill(Connid, SIGTERM);
+	//printf("Welcome to attend the experiments of designing a proxy firewall! \n");
 
-	if (port == 0) {
-		printf("Invalid port number, try again. \n");
-			printf("Usage: %s -p port\n", argv[0]);
-			return -1;
-	}
-
-	printf("Welcome to attend the experiments of designing a proxy firewall! \n");
-
-	memset(&proxyserver_addr, 0, sizeof(proxyserver_addr));							// zero proxyserver_addr
-	proxyserver_addr.sin_family = AF_INET;
-	proxyserver_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	proxyserver_addr.sin_port = htons(port);
-
-	sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);			// create socket
-	if (sockfd < 0) {
-		printf("Socket failed...Abort...\n");
-		return;
-	} 
-	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *) &on, sizeof(on));
-	if (bind(sockfd, (struct sockaddr *) &proxyserver_addr, sizeof(proxyserver_addr)) < 0) {
-		printf("Bind failed...Abort...\n");
-		return;
-	} 
-	if (listen(sockfd, QUEUE_SIZE) < 0) {
-		printf("Listen failed...Abort...\n");
-		return;
-	}
-	while (1) {
-	    pthread_mutex_lock(&quit_mutex);
-	    if (q_flag == 1) {
-	        printf("quit");
-	        pthread_mutex_unlock(&quit_mutex);
-	        exit(1);
-	    }
-	    pthread_mutex_unlock(&quit_mutex);
-		accept_sockfd = accept(sockfd, (struct sockaddr *)&cl_addr, &sin_size); 	// block for connection request
-		if (accept_sockfd < 0) {
-			printf("accept failed");
-			continue;
-		}
-
-		print_clientinfo(cl_addr);
-		
-		//printf("Received a request from %s:%u \n",(char*)inet_ntoa(cl_addr.sin_addr.s_addr),ntohs(cl_addr.sin_port));
-
-
-		if (checkclient(cl_addr.sin_addr.s_addr) == 1)
-		{
-		    struct parameter para;
-		    para.accept_sockfd = accept_sockfd;
-		    para.cl_addr = cl_addr;
-		    pthread_create(&Clitid,NULL,(void*)dealonereq,&para);
-		}
-		else
-			close(accept_sockfd);
-	}
 	return 0;
 }
 
